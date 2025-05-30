@@ -4,30 +4,20 @@ from leap_motion_controller.msg import Hand
 from sensor_msgs.msg import JointState
 import math
 
+'''
+This script defines a ROS node that processes Leap Motion data to control the Inspire-Robots hand.
+It provides direct mapping with some fine-tuning based on finger distances and predefined gestures.
+'''
 
-# Finger joint names
-HAND_SIDE = "R"  # "R" for right, "L" for left TODO: Make this configurable via ROS parameter
-JOINT_NAMES = [
-    f"{HAND_SIDE}_pinky_MCP_joint",
-    f"{HAND_SIDE}_ring_MCP_joint",
-    f"{HAND_SIDE}_middle_MCP_joint",
-    f"{HAND_SIDE}_index_MCP_joint",
-    f"{HAND_SIDE}_thumb_MCP_joint2",
-    f"{HAND_SIDE}_thumb_MCP_joint1"
+# Finger joint names suffixes
+JOINT_NAMES_SUFFIXES = [
+    "_pinky_MCP_joint",
+    "_ring_MCP_joint",
+    "_middle_MCP_joint",
+    "_index_MCP_joint",
+    "_thumb_MCP_joint2",
+    "_thumb_MCP_joint1"
 ]
-# [pinky, ring, middle, index, thumb2, thumb1]
-HUMAN_HAND_JOINT_MIN = [95, 85, 85, 85, 135, 85]  # Minimum angles for each joint in degrees
-HUMAN_HAND_JOINT_MAX = [160, 165, 165, 170, 170, 125]  # Maximum angles for each joint in degrees
-INSPIRE_HAND_JOINT_MIN = [0, 0, 0, 0, 0, 0]  # Minimum angles for Inspire hand joints [0-1000]
-INSPIRE_HAND_JOINT_MAX = [1000, 1000, 1000, 1000, 1000, 1000]  # Maximum angles for Inspire hand joints [0-1000]
-FIST_ANGLES = [0, 0, 0, 0, 0, 1000]  # Fist angles for Inspire hand
-PINCH_INDEX_ANGLES = [-1, -1, -1, 482, 560, 110]  # Pinch angles for Inspire hand (thumb touching index)
-PINCH_OTHER_ANGLES = [400, 400, 475, 482, 660, 0]  # Pinch angles for Inspire hand (thumb touching any other finger)
-INDEX_PINCH_THRESHOLD = 0.03
-MIDDLE_PINCH_THRESHOLD = 0.05
-RING_PINCH_THRESHOLD = 0.055
-PINKY_PINCH_THRESHOLD = 0.045
-FIST_THRESHOLD = 0.19
 
 
 class LeapTeleopNode:
@@ -35,10 +25,40 @@ class LeapTeleopNode:
         # Initialize the ROS node
         rospy.init_node('inspire_teleop', anonymous=True)
 
-        # Get parameters 
-        self.leap_topic = rospy.get_param('~leap_topic', '/leapmotion/hands/right')
-        self.hand_topic = rospy.get_param('~hand_topic', '/inspire_hand/set_angles')
-        self.freq = rospy.get_param('~rate', 100)  # Hz
+        # PARAMETERS
+        # Leap Motion and Inspire hand topics 
+        self.leap_topic = rospy.get_param('leap_topic', '/leapmotion/hands/right')
+        self.hand_topic = rospy.get_param('hand_topic', '/inspire_hand/set_angles')
+        
+        # Control rate
+        self.freq = rospy.get_param('rate', 100)  # Hz
+        
+        # Human hand joint angle limits (degrees)
+        self.human_hand_joint_min = rospy.get_param('human_hand_joint_min', [95, 85, 85, 85, 135, 85])
+        self.human_hand_joint_max = rospy.get_param('human_hand_joint_max', [160, 165, 165, 170, 170, 125])
+
+        # Inspire hand joint angle limits (scaled 0-1000)
+        self.inspire_hand_joint_min = rospy.get_param('inspire_hand_joint_min', [0, 0, 0, 0, 0, 0])
+        self.inspire_hand_joint_max = rospy.get_param('inspire_hand_joint_max', [1000, 1000, 1000, 1000, 1000, 1000])
+
+        # Predefined angles for gestures
+        self.fist_angles = rospy.get_param('fist_angles', [0, 0, 0, 0, 0, 1000])
+        self.pinch_index_angles = rospy.get_param('pinch_index_angles', [-1, -1, -1, 482, 560, 110])
+        self.pinch_other_angles = rospy.get_param('pinch_other_angles', [400, 400, 475, 482, 660, 0])
+
+        # Thresholds for gestures
+        self.index_pinch_threshold = rospy.get_param('index_pinch_threshold', 0.03)
+        self.middle_pinch_threshold = rospy.get_param('middle_pinch_threshold', 0.05)
+        self.ring_pinch_threshold = rospy.get_param('ring_pinch_threshold', 0.055)
+        self.pinky_pinch_threshold = rospy.get_param('pinky_pinch_threshold', 0.045)
+        self.fist_threshold = rospy.get_param('fist_threshold', 0.19)
+
+        # Hand side (right or left)
+        self.hand_side = rospy.get_param('hand_side', 'right')  # Default to right hand
+
+        hand_prefix = 'L' if self.hand_side == 'left' else 'R'
+        # Joint names for the right hand
+        self.joint_names = [f"{hand_prefix}{suffix}" for suffix in JOINT_NAMES_SUFFIXES]
 
         # Subscriber to the Leap Motion data topic
         self.leap_sub = rospy.Subscriber(self.leap_topic, Hand, self.leap_callback, queue_size=1)
@@ -48,9 +68,9 @@ class LeapTeleopNode:
 
         # Initialize joint angles
         self.joint_angles = JointState()
-        self.joint_angles.name = JOINT_NAMES
-        self.joint_angles.position = [0] * len(JOINT_NAMES)
-        self.last_joint_positions = [-1] * len(JOINT_NAMES) 
+        self.joint_angles.name = self.joint_names
+        self.joint_angles.position = [0] * len(self.joint_names)
+        self.last_joint_positions = [-1] * len(self.joint_names) 
 
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
@@ -61,7 +81,7 @@ class LeapTeleopNode:
         """
         Callback function to process Leap Motion data and update joint angles.
         """
-        angles = [0] * len(JOINT_NAMES)  # Initialize angles for each joint
+        angles = [0] * len(self.joint_names)  # Initialize angles for each joint
         try:
             # 1. DIRECT MAPPING from Leap Motion data
             # Reversed loop to process from pinky to thumb, matching the Inspire hand joint order
@@ -89,8 +109,8 @@ class LeapTeleopNode:
             #rospy.loginfo(f"Raw angles from Leap Motion: {angles}")
             for i, angle in enumerate(angles):
                 # Map the angle to the Inspire hand joint range
-                mapped_angle = int((angle - HUMAN_HAND_JOINT_MIN[i]) / (HUMAN_HAND_JOINT_MAX[i] - HUMAN_HAND_JOINT_MIN[i]) * (INSPIRE_HAND_JOINT_MAX[i] - INSPIRE_HAND_JOINT_MIN[i]) + INSPIRE_HAND_JOINT_MIN[i])
-                mapped_angle = max(INSPIRE_HAND_JOINT_MIN[i], min(INSPIRE_HAND_JOINT_MAX[i], mapped_angle))
+                mapped_angle = int((angle - self.human_hand_joint_min[i]) / (self.human_hand_joint_max[i] - self.human_hand_joint_min[i]) * (self.inspire_hand_joint_max[i] - self.inspire_hand_joint_min[i]) + self.inspire_hand_joint_min[i])
+                mapped_angle = max(self.inspire_hand_joint_min[i], min(self.inspire_hand_joint_max[i], mapped_angle))
                 mapped_angles[i] = mapped_angle
 
             # 2. FINE TUNING of the angles based on finger distances
@@ -114,37 +134,37 @@ class LeapTeleopNode:
             #rospy.loginfo("Total distance to palm: {:.2f} m".format(total_distance_to_palm))
 
             # Check for FIST
-            if total_distance_to_palm < FIST_THRESHOLD:
+            if total_distance_to_palm < self.fist_threshold:
                 rospy.loginfo_throttle(1, "FIST gesture detected.")
-                mapped_angles = FIST_ANGLES  # Set angles for a fist gesture
+                mapped_angles = self.fist_angles  # Set angles for a fist gesture
             # Check for PINCH with the index finger
-            elif thumb_to_index_distance < INDEX_PINCH_THRESHOLD and thumb_to_middle_distance > thumb_to_index_distance:
+            elif thumb_to_index_distance < self.index_pinch_threshold and thumb_to_middle_distance > thumb_to_index_distance:
                 # Thumb is touching the index finger
                 rospy.loginfo_throttle(1, "Thumb is touching the INDEX finger.")
-                mapped_angles[3:6] = PINCH_INDEX_ANGLES[3:6]  # Set angles for pinch with index finger
+                mapped_angles[3:6] = self.pinch_index_angles[3:6]  # Set angles for pinch with index finger
             # Check for PINCH with the middle finger
-            elif thumb_to_middle_distance < MIDDLE_PINCH_THRESHOLD and thumb_to_index_distance > thumb_to_middle_distance:
+            elif thumb_to_middle_distance < self.middle_pinch_threshold and thumb_to_index_distance > thumb_to_middle_distance:
                 # Thumb is touching the middle finger
                 rospy.loginfo_throttle(1, "Thumb is touching the MIDDLE finger.")
-                mapped_angles[2] = PINCH_OTHER_ANGLES[2]
-                mapped_angles[3] = max(mapped_angles[3], PINCH_OTHER_ANGLES[3])
-                mapped_angles[4:6] = PINCH_OTHER_ANGLES[4:6]
+                mapped_angles[2] = self.pinch_other_angles[2]
+                mapped_angles[3] = max(mapped_angles[3], self.pinch_other_angles[3])
+                mapped_angles[4:6] = self.pinch_other_angles[4:6]
             # Check for PINCH with the ring finger
-            elif thumb_to_ring_distance < RING_PINCH_THRESHOLD and thumb_to_middle_distance > thumb_to_ring_distance:
+            elif thumb_to_ring_distance < self.ring_pinch_threshold and thumb_to_middle_distance > thumb_to_ring_distance:
                 # Thumb is touching the ring finger
                 rospy.loginfo_throttle(1, "Thumb is touching the RING finger.")
-                mapped_angles[1] = PINCH_OTHER_ANGLES[1]
-                mapped_angles[2:4] = [max(a, b) for a, b in zip(PINCH_OTHER_ANGLES[2:4], mapped_angles[2:4])]
-                mapped_angles[4:6] = PINCH_OTHER_ANGLES[4:6]
+                mapped_angles[1] = self.pinch_other_angles[1]
+                mapped_angles[2:4] = [max(a, b) for a, b in zip(self.pinch_other_angles[2:4], mapped_angles[2:4])]
+                mapped_angles[4:6] = self.pinch_other_angles[4:6]
             # Check for PINCH with the pinky finger
-            elif thumb_to_pinky_distance < PINKY_PINCH_THRESHOLD and thumb_to_ring_distance > thumb_to_pinky_distance:
+            elif thumb_to_pinky_distance < self.pinky_pinch_threshold and thumb_to_ring_distance > thumb_to_pinky_distance:
                 # Thumb is touching the pinky finger
                 rospy.loginfo_throttle(1, "Thumb is touching the PINKY finger.")
-                mapped_angles[0] = PINCH_OTHER_ANGLES[0]
-                mapped_angles[1:4] = [max(a, b) for a, b in zip(PINCH_OTHER_ANGLES[1:4], mapped_angles[1:4])]
-                mapped_angles[4:6] = PINCH_OTHER_ANGLES[4:6]
+                mapped_angles[0] = self.pinch_other_angles[0]
+                mapped_angles[1:4] = [max(a, b) for a, b in zip(self.pinch_other_angles[1:4], mapped_angles[1:4])]
+                mapped_angles[4:6] = self.pinch_other_angles[4:6]
             # Finally, for SAFETY, make sure that if the index is closed, the thumb is opened, and vice versa, to avoid collisions
-            elif mapped_angles[3] < PINCH_INDEX_ANGLES[3]:
+            elif mapped_angles[3] < self.pinch_index_angles[3]:
                 rospy.loginfo_throttle(1,"INDEX finger is closed, opening Thumb's 2nd DoF.")
                 if mapped_angles[5] < 600:
                     mapped_angles[4] = max(mapped_angles[4], 350)

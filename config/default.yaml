@@ -1,0 +1,22 @@
+                    
+# JOINT ORDER: [pinky, ring, middle, index, thumb2, thumb1]
+
+# Human hand joint angle limits (degrees)
+human_hand_joint_min: [95, 85, 85, 85, 135, 85]  # Minimum angles 
+human_hand_joint_max: [160, 165, 165, 170, 170, 125]  # Maximum angles
+
+# Inspire hand joint angle limits (scaled 0-1000)
+inspire_hand_joint_min: [0, 0, 0, 0, 0, 0]  # Minimum angles
+inspire_hand_joint_max: [1000, 1000, 1000, 1000, 1000, 1000]  # Maximum angles
+
+# Predefined angles for gestures
+fist_angles: [0, 0, 0, 0, 0, 1000]  # Fist angles for Inspire hand
+pinch_index_angles: [-1, -1, -1, 482, 560, 110]  # Pinch angles for Inspire hand (thumb touching index)
+pinch_other_angles: [400, 400, 475, 482, 660, 0]  # Pinch angles for Inspire hand (thumb touching any other finger)
+
+# Thresholds for gestures
+index_pinch_threshold: 0.03
+middle_pinch_threshold: 0.05
+ring_pinch_threshold: 0.055
+pinky_pinch_threshold: 0.045
+fist_threshold: 0.19
