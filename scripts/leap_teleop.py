@@ -15,8 +15,9 @@ JOINT_NAMES = [
     f"{HAND_SIDE}_thumb_MCP_joint2",
     f"{HAND_SIDE}_thumb_MCP_joint1"
 ]
-HUMAN_HAND_JOINT_MIN = [85, 75, 70, 70, 1, 1]  # Minimum angles for each joint in degrees
-HUMAN_HAND_JOINT_MAX = [160, 165, 165, 165, 180, 180]  # Maximum angles for each joint in degrees
+# [pinky, ring, middle, index, thumb2, thumb1]
+HUMAN_HAND_JOINT_MIN = [95, 85, 85, 85, 135, 1]  # Minimum angles for each joint in degrees
+HUMAN_HAND_JOINT_MAX = [160, 165, 165, 170, 170, 180]  # Maximum angles for each joint in degrees
 INSPIRE_HAND_JOINT_MIN = [0, 0, 0, 0, 0, 0]  # Minimum angles for Inspire hand joints [0-1000]
 INSPIRE_HAND_JOINT_MAX = [1000, 1000, 1000, 1000, 1000, 1000]  # Maximum angles for Inspire hand joints [0-1000]
 
@@ -55,21 +56,21 @@ class LeapTeleopNode:
         try:
             # Reversed loop to process from pinky to thumb, matching the Inspire hand joint order
             for i, finger in list(enumerate(msg.finger_list)): 
-                if i == 0:  # Thumb is at index 0
-                    pass  # Skip the thumb for now, as it has a different structure
-                    angles[0] = 180
-                    angles[1] = 180
-                else:
-                    # Get the start and end positions of the first and last bones
-                    first_bone_start = finger.bone_list[0].bone_start
-                    first_bone_end = finger.bone_list[0].bone_end
-                    last_bone_end = finger.bone_list[-1].bone_end
+                start_bone_idx = 1 if i == 0 else 1
+                # Get the start and end positions of the first and last bones
+                first_bone_start = finger.bone_list[start_bone_idx].bone_start
+                first_bone_end = finger.bone_list[start_bone_idx].bone_end
+                last_bone_end = finger.bone_list[-1].bone_end
 
-                    # calculate the angle between the 3 points
-                    v1 = [first_bone_start.x - first_bone_end.x, first_bone_start.y - first_bone_end.y, first_bone_start.z - first_bone_end.z]
-                    v2 = [last_bone_end.x - first_bone_end.x, last_bone_end.y - first_bone_end.y, last_bone_end.z - first_bone_end.z]
-                    angle = self.get_angle_between_vectors(v1, v2)
-                    angles[i+1] = angle  # Store the angle for the current finger
+                # calculate the angle between the 3 points
+                v1 = [first_bone_start.x - first_bone_end.x, first_bone_start.y - first_bone_end.y, first_bone_start.z - first_bone_end.z]
+                v2 = [last_bone_end.x - first_bone_end.x, last_bone_end.y - first_bone_end.y, last_bone_end.z - first_bone_end.z]
+                angle = self.get_angle_between_vectors(v1, v2)
+                angles[i+1] = angle  # Store the angle for the current finger
+            
+                if i == 0:  # Thumb is at index 0
+                    angles[0] = 180 # TODO: Calculate the second DoF for the thumb
+                    
 
             # Reverse the angles list to match the Inspire hand joint order 
             angles.reverse()
