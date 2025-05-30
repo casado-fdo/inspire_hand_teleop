@@ -63,6 +63,7 @@ class LeapTeleopNode:
         """
         angles = [0] * len(JOINT_NAMES)  # Initialize angles for each joint
         try:
+            # 1. DIRECT MAPPING from Leap Motion data
             # Reversed loop to process from pinky to thumb, matching the Inspire hand joint order
             for i, finger in list(enumerate(msg.finger_list)): 
                 start_bone_idx = 1 if i == 0 else 1
@@ -92,7 +93,7 @@ class LeapTeleopNode:
                 mapped_angle = max(INSPIRE_HAND_JOINT_MIN[i], min(INSPIRE_HAND_JOINT_MAX[i], mapped_angle))
                 mapped_angles[i] = mapped_angle
 
-            # Fine tune for specific hand gestures
+            # 2. FINE TUNING of the angles based on finger distances
             thumb_tip = msg.finger_list[0].bone_list[-1].bone_end
             index_tip = msg.finger_list[1].bone_list[-1].bone_end
             middle_tip = msg.finger_list[2].bone_list[-1].bone_end
@@ -100,51 +101,15 @@ class LeapTeleopNode:
             pinky_tip = msg.finger_list[4].bone_list[-1].bone_end
             palm_center = msg.palm_center.position
 
-            thumb_to_index_distance = math.sqrt(
-                (thumb_tip.x - index_tip.x) ** 2 +
-                (thumb_tip.y - index_tip.y) ** 2 +
-                (thumb_tip.z - index_tip.z) ** 2
-            )
-            thumb_to_middle_distance = math.sqrt(
-                (thumb_tip.x - middle_tip.x) ** 2 +
-                (thumb_tip.y - middle_tip.y) ** 2 +
-                (thumb_tip.z - middle_tip.z) ** 2
-            )
-            thumb_to_ring_distance = math.sqrt(
-                (thumb_tip.x - ring_tip.x) ** 2 +
-                (thumb_tip.y - ring_tip.y) ** 2 +
-                (thumb_tip.z - ring_tip.z) ** 2
-            )
-            thumb_to_pinky_distance = math.sqrt(
-                (thumb_tip.x - pinky_tip.x) ** 2 +
-                (thumb_tip.y - pinky_tip.y) ** 2 +
-                (thumb_tip.z - pinky_tip.z) ** 2
-            )
-            thumb_to_palm_distance = math.sqrt(
-                (thumb_tip.x - palm_center.x) ** 2 +
-                (thumb_tip.y - palm_center.y) ** 2 +
-                (thumb_tip.z - palm_center.z) ** 2
-            )
-            index_to_palm_distance = math.sqrt(
-                (index_tip.x - palm_center.x) ** 2 +
-                (index_tip.y - palm_center.y) ** 2 +
-                (index_tip.z - palm_center.z) ** 2
-            ) 
-            middle_to_palm_distance = math.sqrt(
-                (middle_tip.x - palm_center.x) ** 2 +
-                (middle_tip.y - palm_center.y) ** 2 +
-                (middle_tip.z - palm_center.z) ** 2
-            )
-            ring_to_palm_distance = math.sqrt(
-                (ring_tip.x - palm_center.x) ** 2 +
-                (ring_tip.y - palm_center.y) ** 2 +
-                (ring_tip.z - palm_center.z) ** 2
-            )
-            pinky_to_palm_distance = math.sqrt(
-                (pinky_tip.x - palm_center.x) ** 2 +
-                (pinky_tip.y - palm_center.y) ** 2 +
-                (pinky_tip.z - palm_center.z) ** 2
-            )
+            thumb_to_index_distance = self.euclidean_distance(thumb_tip, index_tip)
+            thumb_to_middle_distance = self.euclidean_distance(thumb_tip, middle_tip)
+            thumb_to_ring_distance = self.euclidean_distance(thumb_tip, ring_tip)
+            thumb_to_pinky_distance = self.euclidean_distance(thumb_tip, pinky_tip)
+            thumb_to_palm_distance = self.euclidean_distance(thumb_tip, palm_center)
+            index_to_palm_distance = self.euclidean_distance(index_tip, palm_center)
+            middle_to_palm_distance = self.euclidean_distance(middle_tip, palm_center)
+            ring_to_palm_distance = self.euclidean_distance(ring_tip, palm_center)
+            pinky_to_palm_distance = self.euclidean_distance(pinky_tip, palm_center)
             total_distance_to_palm = (thumb_to_palm_distance + index_to_palm_distance + middle_to_palm_distance + ring_to_palm_distance + pinky_to_palm_distance)
             #rospy.loginfo("Total distance to palm: {:.2f} m".format(total_distance_to_palm))
 
@@ -233,6 +198,15 @@ class LeapTeleopNode:
         cos_angle = dot_product / (magnitude_v1 * magnitude_v2)
         return math.acos(cos_angle) * (180.0 / math.pi)
 
+    def euclidean_distance(self, point1, point2):
+        """
+        Calculate the Euclidean distance between two points in 3D space.
+        """
+        return math.sqrt(
+            (point1.x - point2.x) ** 2 +
+            (point1.y - point2.y) ** 2 +
+            (point1.z - point2.z) ** 2
+        )
 
 if __name__ == '__main__':
     try:
