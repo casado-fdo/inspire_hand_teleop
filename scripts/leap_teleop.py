@@ -16,10 +16,16 @@ JOINT_NAMES = [
     f"{HAND_SIDE}_thumb_MCP_joint1"
 ]
 # [pinky, ring, middle, index, thumb2, thumb1]
-HUMAN_HAND_JOINT_MIN = [95, 85, 85, 85, 135, 1]  # Minimum angles for each joint in degrees
-HUMAN_HAND_JOINT_MAX = [160, 165, 165, 170, 170, 180]  # Maximum angles for each joint in degrees
+HUMAN_HAND_JOINT_MIN = [95, 85, 85, 85, 135, 85]  # Minimum angles for each joint in degrees
+HUMAN_HAND_JOINT_MAX = [160, 165, 165, 170, 170, 125]  # Maximum angles for each joint in degrees
 INSPIRE_HAND_JOINT_MIN = [0, 0, 0, 0, 0, 0]  # Minimum angles for Inspire hand joints [0-1000]
 INSPIRE_HAND_JOINT_MAX = [1000, 1000, 1000, 1000, 1000, 1000]  # Maximum angles for Inspire hand joints [0-1000]
+INDEX_PINCH_THRESHOLD = 0.03
+MIDDLE_PINCH_THRESHOLD = 0.05
+RING_PINCH_THRESHOLD = 0.055
+PINKY_PINCH_THRESHOLD = 0.045
+FIST_THRESHOLD = 0.2
+FIST_ANGLES = [0, 0, 0, 0, 0, 1000]  # Fist angles for Inspire hand [pinky, ring, middle, index, thumb2, thumb1]
 
 class LeapTeleopNode:
     def __init__(self):
@@ -63,24 +69,109 @@ class LeapTeleopNode:
                 last_bone_end = finger.bone_list[-1].bone_end
 
                 # calculate the angle between the 3 points
-                v1 = [first_bone_start.x - first_bone_end.x, first_bone_start.y - first_bone_end.y, first_bone_start.z - first_bone_end.z]
-                v2 = [last_bone_end.x - first_bone_end.x, last_bone_end.y - first_bone_end.y, last_bone_end.z - first_bone_end.z]
-                angle = self.get_angle_between_vectors(v1, v2)
+                angle = self.get_angle_between_3_points(first_bone_start, first_bone_end, last_bone_end)
                 angles[i+1] = angle  # Store the angle for the current finger
             
                 if i == 0:  # Thumb is at index 0
-                    angles[0] = 180 # TODO: Calculate the second DoF for the thumb
+                    # For the 2nd DoF of the thumb, we calculate the angle between the thumb's tip and the pinky's first bone
+                    pinky_first_bone_start = msg.finger_list[-1].bone_list[0].bone_start
+                    # Calculate the angle
+                    #v3 = [last_bone_end.x - first_bone_start.x, last_bone_end.y - first_bone_start.y, last_bone_end.z - first_bone_start.z]
+                    #v4 = [pinky_first_bone_start.x - first_bone_start.x, pinky_first_bone_start.y - first_bone_start.y, pinky_first_bone_start.z - first_bone_start.z]
+                    angle2 = self.get_angle_between_3_points(last_bone_end, first_bone_start, pinky_first_bone_start)
+                    angles[0] = angle2 
                     
-
             # Reverse the angles list to match the Inspire hand joint order 
             angles.reverse()
+            mapped_angles = angles
             #rospy.loginfo(f"Raw angles from Leap Motion: {angles}")
             for i, angle in enumerate(angles):
                 # Map the angle to the Inspire hand joint range
                 mapped_angle = int((angle - HUMAN_HAND_JOINT_MIN[i]) / (HUMAN_HAND_JOINT_MAX[i] - HUMAN_HAND_JOINT_MIN[i]) * (INSPIRE_HAND_JOINT_MAX[i] - INSPIRE_HAND_JOINT_MIN[i]) + INSPIRE_HAND_JOINT_MIN[i])
                 mapped_angle = max(INSPIRE_HAND_JOINT_MIN[i], min(INSPIRE_HAND_JOINT_MAX[i], mapped_angle))
-                self.last_joint_positions[i] = mapped_angle
+                mapped_angles[i] = mapped_angle
 
+            # Fine tune for specific hand gestures
+            thumb_tip = msg.finger_list[0].bone_list[-1].bone_end
+            index_tip = msg.finger_list[1].bone_list[-1].bone_end
+            middle_tip = msg.finger_list[2].bone_list[-1].bone_end
+            ring_tip = msg.finger_list[3].bone_list[-1].bone_end
+            pinky_tip = msg.finger_list[4].bone_list[-1].bone_end
+
+            thumb_to_index_distance = math.sqrt(
+                (thumb_tip.x - index_tip.x) ** 2 +
+                (thumb_tip.y - index_tip.y) ** 2 +
+                (thumb_tip.z - index_tip.z) ** 2
+            )
+            thumb_to_middle_distance = math.sqrt(
+                (thumb_tip.x - middle_tip.x) ** 2 +
+                (thumb_tip.y - middle_tip.y) ** 2 +
+                (thumb_tip.z - middle_tip.z) ** 2
+            )
+            thumb_to_ring_distance = math.sqrt(
+                (thumb_tip.x - ring_tip.x) ** 2 +
+                (thumb_tip.y - ring_tip.y) ** 2 +
+                (thumb_tip.z - ring_tip.z) ** 2
+            )
+            thumb_to_pinky_distance = math.sqrt(
+                (thumb_tip.x - pinky_tip.x) ** 2 +
+                (thumb_tip.y - pinky_tip.y) ** 2 +
+                (thumb_tip.z - pinky_tip.z) ** 2
+            )
+            total_thumb_distance = thumb_to_index_distance + thumb_to_middle_distance + thumb_to_ring_distance + thumb_to_pinky_distance
+
+            #rospy.loginfo(f"Distances - Thumb to Index: {thumb_to_index_distance}, Thumb to Middle: {thumb_to_middle_distance}, Thumb to Ring: {thumb_to_ring_distance}, Thumb to Pinky: {thumb_to_pinky_distance}")
+
+            # Check for FIST
+            if total_thumb_distance < FIST_THRESHOLD:
+                rospy.loginfo("FIST gesture detected.")
+                mapped_angles = FIST_ANGLES  # Set angles for a fist gesture
+            # Check for PINCH with the index finger
+            elif thumb_to_index_distance < INDEX_PINCH_THRESHOLD and thumb_to_middle_distance > thumb_to_index_distance:
+                # Thumb is touching the index finger
+                rospy.loginfo("Thumb is touching the INDEX finger.")
+                mapped_angles[3] = 482   
+                mapped_angles[4] = 560
+                mapped_angles[5] = 110
+            # Check for PINCH with the middle finger
+            elif thumb_to_middle_distance < MIDDLE_PINCH_THRESHOLD and thumb_to_index_distance > thumb_to_middle_distance:
+                # Thumb is touching the middle finger
+                rospy.loginfo("Thumb is touching the MIDDLE finger.")
+                mapped_angles[2] = 475
+                mapped_angles[3] = 482 if mapped_angles[3] < 482 else mapped_angles[3]
+                mapped_angles[4] = 660
+                mapped_angles[5] = 0
+            # Check for PINCH with the ring finger
+            elif thumb_to_ring_distance < RING_PINCH_THRESHOLD and thumb_to_middle_distance > thumb_to_ring_distance:
+                # Thumb is touching the ring finger
+                rospy.loginfo("Thumb is touching the RING finger.")
+                mapped_angles[1] = 400
+                mapped_angles[2] = 475 if mapped_angles[2] < 475 else mapped_angles[2]
+                mapped_angles[3] = 482 if mapped_angles[3] < 482 else mapped_angles[3]
+                mapped_angles[4] = 660
+                mapped_angles[5] = 0
+            # Check for PINCH with the pinky finger
+            elif thumb_to_pinky_distance < PINKY_PINCH_THRESHOLD and thumb_to_ring_distance > thumb_to_pinky_distance:
+                # Thumb is touching the pinky finger
+                rospy.loginfo("Thumb is touching the PINKY finger.")
+                mapped_angles[0] = 400
+                mapped_angles[1] = 400 if mapped_angles[1] < 400 else mapped_angles[1]
+                mapped_angles[2] = 475 if mapped_angles[2] < 475 else mapped_angles[2]
+                mapped_angles[3] = 482 if mapped_angles[3] < 482 else mapped_angles[3]
+                mapped_angles[4] = 660
+                mapped_angles[5] = 0
+            # Finally, for SAFETY, make sure that if the index is closed, the thumb is opened, and vice versa, to avoid collisions
+            elif mapped_angles[3] < 482:
+                rospy.loginfo("INDEX finger is closed, opening Thumb's 2nd DoF.")
+                if mapped_angles[5] < 600:
+                    mapped_angles[4] = 350 if mapped_angles[4] < 350 else mapped_angles[4]
+                    mapped_angles[5] = 600
+                else:
+                    mapped_angles[4] = 200 if mapped_angles[4] < 200 else mapped_angles[4]
+
+
+            # Finally, update the last joint positions
+            self.last_joint_positions = mapped_angles
             rospy.loginfo(f"Updated joint positions: {self.last_joint_positions}")
 
         except IndexError:
@@ -96,11 +187,20 @@ class LeapTeleopNode:
 
                 # Publish the joint angles
                 self.hand_pub.publish(self.joint_angles)
-
-                # Sleep to maintain the loop rate
-                self.rate.sleep()
             else:
-                pass
+                pass # TODO: After some time, move the hand to home position
+            # Sleep to maintain the loop rate
+            self.rate.sleep()
+
+    
+    def get_angle_between_3_points(self, p1, p2, p3):
+        """
+        Calculate the angle between three points p1, p2, and p3.
+        p2 is the vertex of the angle.
+        """
+        v1 = [p1.x - p2.x, p1.y - p2.y, p1.z - p2.z]
+        v2 = [p3.x - p2.x, p3.y - p2.y, p3.z - p2.z]
+        return self.get_angle_between_vectors(v1, v2)
 
 
     def get_angle_between_vectors(self, v1, v2):
