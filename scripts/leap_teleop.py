@@ -20,12 +20,15 @@ HUMAN_HAND_JOINT_MIN = [95, 85, 85, 85, 135, 85]  # Minimum angles for each join
 HUMAN_HAND_JOINT_MAX = [160, 165, 165, 170, 170, 125]  # Maximum angles for each joint in degrees
 INSPIRE_HAND_JOINT_MIN = [0, 0, 0, 0, 0, 0]  # Minimum angles for Inspire hand joints [0-1000]
 INSPIRE_HAND_JOINT_MAX = [1000, 1000, 1000, 1000, 1000, 1000]  # Maximum angles for Inspire hand joints [0-1000]
+FIST_ANGLES = [0, 0, 0, 0, 0, 1000]  # Fist angles for Inspire hand
+PINCH_INDEX_ANGLES = [-1, -1, -1, 482, 560, 110]  # Pinch angles for Inspire hand (thumb touching index)
+PINCH_OTHER_ANGLES = [400, 400, 475, 482, 660, 0]  # Pinch angles for Inspire hand (thumb touching any other finger)
 INDEX_PINCH_THRESHOLD = 0.03
 MIDDLE_PINCH_THRESHOLD = 0.05
 RING_PINCH_THRESHOLD = 0.055
 PINKY_PINCH_THRESHOLD = 0.045
-FIST_THRESHOLD = 0.2
-FIST_ANGLES = [0, 0, 0, 0, 0, 1000]  # Fist angles for Inspire hand [pinky, ring, middle, index, thumb2, thumb1]
+FIST_THRESHOLD = 0.19
+
 
 class LeapTeleopNode:
     def __init__(self):
@@ -76,8 +79,6 @@ class LeapTeleopNode:
                     # For the 2nd DoF of the thumb, we calculate the angle between the thumb's tip and the pinky's first bone
                     pinky_first_bone_start = msg.finger_list[-1].bone_list[0].bone_start
                     # Calculate the angle
-                    #v3 = [last_bone_end.x - first_bone_start.x, last_bone_end.y - first_bone_start.y, last_bone_end.z - first_bone_start.z]
-                    #v4 = [pinky_first_bone_start.x - first_bone_start.x, pinky_first_bone_start.y - first_bone_start.y, pinky_first_bone_start.z - first_bone_start.z]
                     angle2 = self.get_angle_between_3_points(last_bone_end, first_bone_start, pinky_first_bone_start)
                     angles[0] = angle2 
                     
@@ -97,6 +98,7 @@ class LeapTeleopNode:
             middle_tip = msg.finger_list[2].bone_list[-1].bone_end
             ring_tip = msg.finger_list[3].bone_list[-1].bone_end
             pinky_tip = msg.finger_list[4].bone_list[-1].bone_end
+            palm_center = msg.palm_center.position
 
             thumb_to_index_distance = math.sqrt(
                 (thumb_tip.x - index_tip.x) ** 2 +
@@ -118,56 +120,72 @@ class LeapTeleopNode:
                 (thumb_tip.y - pinky_tip.y) ** 2 +
                 (thumb_tip.z - pinky_tip.z) ** 2
             )
-            total_thumb_distance = thumb_to_index_distance + thumb_to_middle_distance + thumb_to_ring_distance + thumb_to_pinky_distance
-
-            #rospy.loginfo(f"Distances - Thumb to Index: {thumb_to_index_distance}, Thumb to Middle: {thumb_to_middle_distance}, Thumb to Ring: {thumb_to_ring_distance}, Thumb to Pinky: {thumb_to_pinky_distance}")
+            thumb_to_palm_distance = math.sqrt(
+                (thumb_tip.x - palm_center.x) ** 2 +
+                (thumb_tip.y - palm_center.y) ** 2 +
+                (thumb_tip.z - palm_center.z) ** 2
+            )
+            index_to_palm_distance = math.sqrt(
+                (index_tip.x - palm_center.x) ** 2 +
+                (index_tip.y - palm_center.y) ** 2 +
+                (index_tip.z - palm_center.z) ** 2
+            ) 
+            middle_to_palm_distance = math.sqrt(
+                (middle_tip.x - palm_center.x) ** 2 +
+                (middle_tip.y - palm_center.y) ** 2 +
+                (middle_tip.z - palm_center.z) ** 2
+            )
+            ring_to_palm_distance = math.sqrt(
+                (ring_tip.x - palm_center.x) ** 2 +
+                (ring_tip.y - palm_center.y) ** 2 +
+                (ring_tip.z - palm_center.z) ** 2
+            )
+            pinky_to_palm_distance = math.sqrt(
+                (pinky_tip.x - palm_center.x) ** 2 +
+                (pinky_tip.y - palm_center.y) ** 2 +
+                (pinky_tip.z - palm_center.z) ** 2
+            )
+            total_distance_to_palm = (thumb_to_palm_distance + index_to_palm_distance + middle_to_palm_distance + ring_to_palm_distance + pinky_to_palm_distance)
+            #rospy.loginfo("Total distance to palm: {:.2f} m".format(total_distance_to_palm))
 
             # Check for FIST
-            if total_thumb_distance < FIST_THRESHOLD:
-                rospy.loginfo("FIST gesture detected.")
+            if total_distance_to_palm < FIST_THRESHOLD:
+                rospy.loginfo_throttle(1, "FIST gesture detected.")
                 mapped_angles = FIST_ANGLES  # Set angles for a fist gesture
             # Check for PINCH with the index finger
             elif thumb_to_index_distance < INDEX_PINCH_THRESHOLD and thumb_to_middle_distance > thumb_to_index_distance:
                 # Thumb is touching the index finger
-                rospy.loginfo("Thumb is touching the INDEX finger.")
-                mapped_angles[3] = 482   
-                mapped_angles[4] = 560
-                mapped_angles[5] = 110
+                rospy.loginfo_throttle(1, "Thumb is touching the INDEX finger.")
+                mapped_angles[3:6] = PINCH_INDEX_ANGLES[3:6]  # Set angles for pinch with index finger
             # Check for PINCH with the middle finger
             elif thumb_to_middle_distance < MIDDLE_PINCH_THRESHOLD and thumb_to_index_distance > thumb_to_middle_distance:
                 # Thumb is touching the middle finger
-                rospy.loginfo("Thumb is touching the MIDDLE finger.")
-                mapped_angles[2] = 475
-                mapped_angles[3] = 482 if mapped_angles[3] < 482 else mapped_angles[3]
-                mapped_angles[4] = 660
-                mapped_angles[5] = 0
+                rospy.loginfo_throttle(1, "Thumb is touching the MIDDLE finger.")
+                mapped_angles[2] = PINCH_OTHER_ANGLES[2]
+                mapped_angles[3] = max(mapped_angles[3], PINCH_OTHER_ANGLES[3])
+                mapped_angles[4:6] = PINCH_OTHER_ANGLES[4:6]
             # Check for PINCH with the ring finger
             elif thumb_to_ring_distance < RING_PINCH_THRESHOLD and thumb_to_middle_distance > thumb_to_ring_distance:
                 # Thumb is touching the ring finger
-                rospy.loginfo("Thumb is touching the RING finger.")
-                mapped_angles[1] = 400
-                mapped_angles[2] = 475 if mapped_angles[2] < 475 else mapped_angles[2]
-                mapped_angles[3] = 482 if mapped_angles[3] < 482 else mapped_angles[3]
-                mapped_angles[4] = 660
-                mapped_angles[5] = 0
+                rospy.loginfo_throttle(1, "Thumb is touching the RING finger.")
+                mapped_angles[1] = PINCH_OTHER_ANGLES[1]
+                mapped_angles[2:4] = [max(a, b) for a, b in zip(PINCH_OTHER_ANGLES[2:4], mapped_angles[2:4])]
+                mapped_angles[4:6] = PINCH_OTHER_ANGLES[4:6]
             # Check for PINCH with the pinky finger
             elif thumb_to_pinky_distance < PINKY_PINCH_THRESHOLD and thumb_to_ring_distance > thumb_to_pinky_distance:
                 # Thumb is touching the pinky finger
-                rospy.loginfo("Thumb is touching the PINKY finger.")
-                mapped_angles[0] = 400
-                mapped_angles[1] = 400 if mapped_angles[1] < 400 else mapped_angles[1]
-                mapped_angles[2] = 475 if mapped_angles[2] < 475 else mapped_angles[2]
-                mapped_angles[3] = 482 if mapped_angles[3] < 482 else mapped_angles[3]
-                mapped_angles[4] = 660
-                mapped_angles[5] = 0
+                rospy.loginfo_throttle(1, "Thumb is touching the PINKY finger.")
+                mapped_angles[0] = PINCH_OTHER_ANGLES[0]
+                mapped_angles[1:4] = [max(a, b) for a, b in zip(PINCH_OTHER_ANGLES[1:4], mapped_angles[1:4])]
+                mapped_angles[4:6] = PINCH_OTHER_ANGLES[4:6]
             # Finally, for SAFETY, make sure that if the index is closed, the thumb is opened, and vice versa, to avoid collisions
-            elif mapped_angles[3] < 482:
-                rospy.loginfo("INDEX finger is closed, opening Thumb's 2nd DoF.")
+            elif mapped_angles[3] < PINCH_INDEX_ANGLES[3]:
+                rospy.loginfo_throttle(1,"INDEX finger is closed, opening Thumb's 2nd DoF.")
                 if mapped_angles[5] < 600:
-                    mapped_angles[4] = 350 if mapped_angles[4] < 350 else mapped_angles[4]
+                    mapped_angles[4] = max(mapped_angles[4], 350)
                     mapped_angles[5] = 600
                 else:
-                    mapped_angles[4] = 200 if mapped_angles[4] < 200 else mapped_angles[4]
+                    mapped_angles[4] = max(mapped_angles[4], 200)
 
 
             # Finally, update the last joint positions
