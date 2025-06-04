@@ -19,6 +19,7 @@ JOINT_NAMES_SUFFIXES = [
     "_thumb_MCP_joint1"
 ]
 
+SMOTHING_FACTOR = 0.03 # Smoothing factor for joint angles
 
 class LeapTeleopNode:
     def __init__(self):
@@ -137,13 +138,14 @@ class LeapTeleopNode:
             if total_distance_to_palm < self.fist_threshold:
                 rospy.loginfo_throttle(1, "FIST gesture detected.")
                 mapped_angles = self.fist_angles  # Set angles for a fist gesture
+                # mapped_angles = [int(SMOTHING_FACTOR * fist + (1 - SMOTHING_FACTOR) * last) for fist, last in zip(self.fist_angles, self.last_joint_positions)]
             # Check for PINCH with the index finger
             elif thumb_to_index_distance < self.index_pinch_threshold and thumb_to_middle_distance > thumb_to_index_distance:
                 # Thumb is touching the index finger
                 rospy.loginfo_throttle(1, "Thumb is touching the INDEX finger.")
                 mapped_angles[3:6] = self.pinch_index_angles[3:6]  # Set angles for pinch with index finger
             # Check for PINCH with the middle finger
-            elif thumb_to_middle_distance < self.middle_pinch_threshold and thumb_to_index_distance > thumb_to_middle_distance:
+            elif thumb_to_middle_distance < self.middle_pinch_threshold and thumb_to_index_distance > thumb_to_middle_distance and middle_to_palm_distance > thumb_to_middle_distance:
                 # Thumb is touching the middle finger
                 rospy.loginfo_throttle(1, "Thumb is touching the MIDDLE finger.")
                 mapped_angles[2] = self.pinch_other_angles[2]
@@ -174,7 +176,7 @@ class LeapTeleopNode:
 
 
             # Finally, update the last joint positions
-            self.last_joint_positions = mapped_angles
+            self.last_joint_positions =  [int(SMOTHING_FACTOR * fist + (1 - SMOTHING_FACTOR) * last) for fist, last in zip(mapped_angles, self.last_joint_positions)]
             rospy.loginfo(f"Updated joint positions: {self.last_joint_positions}")
 
         except IndexError:
@@ -190,8 +192,7 @@ class LeapTeleopNode:
 
                 # Publish the joint angles
                 self.hand_pub.publish(self.joint_angles)
-            else:
-                pass # TODO: After some time, move the hand to home position
+
             # Sleep to maintain the loop rate
             self.rate.sleep()
 
