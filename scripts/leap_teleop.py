@@ -19,8 +19,6 @@ JOINT_NAMES_SUFFIXES = [
     "_thumb_MCP_joint1"
 ]
 
-SMOTHING_FACTOR = 0.03 # Smoothing factor for joint angles
-
 class LeapTeleopNode:
     def __init__(self):
         # Initialize the ROS node
@@ -33,6 +31,9 @@ class LeapTeleopNode:
         
         # Control rate
         self.freq = rospy.get_param('rate', 100)  # Hz
+
+        # Leap smoothing factor
+        self.smoothing_factor = rospy.get_param('smoothing_factor', 0.2)
         
         # Human hand joint angle limits (degrees)
         self.human_hand_joint_min = rospy.get_param('human_hand_joint_min', [95, 85, 85, 85, 135, 85])
@@ -138,7 +139,6 @@ class LeapTeleopNode:
             if total_distance_to_palm < self.fist_threshold:
                 rospy.loginfo_throttle(1, "FIST gesture detected.")
                 mapped_angles = self.fist_angles  # Set angles for a fist gesture
-                # mapped_angles = [int(SMOTHING_FACTOR * fist + (1 - SMOTHING_FACTOR) * last) for fist, last in zip(self.fist_angles, self.last_joint_positions)]
             # Check for PINCH with the index finger
             elif thumb_to_index_distance < self.index_pinch_threshold and thumb_to_middle_distance > thumb_to_index_distance:
                 # Thumb is touching the index finger
@@ -176,7 +176,7 @@ class LeapTeleopNode:
 
 
             # Finally, update the last joint positions
-            self.last_joint_positions =  [int(SMOTHING_FACTOR * fist + (1 - SMOTHING_FACTOR) * last) for fist, last in zip(mapped_angles, self.last_joint_positions)]
+            self.last_joint_positions =  [int(self.smoothing_factor * fist + (1 - self.smoothing_factor) * last) for fist, last in zip(mapped_angles, self.last_joint_positions)]
             rospy.loginfo(f"Updated joint positions: {self.last_joint_positions}")
 
         except IndexError:
