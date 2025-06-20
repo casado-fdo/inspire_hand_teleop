@@ -3,6 +3,7 @@ import rospy
 from leap_motion_controller.msg import Hand
 from sensor_msgs.msg import JointState
 import math
+from inspire_hand.srv import set_force_clb
 
 '''
 This script defines a ROS node that processes Leap Motion data to control the Inspire-Robots hand.
@@ -72,7 +73,14 @@ class LeapTeleopNode:
         self.joint_angles = JointState()
         self.joint_angles.name = self.joint_names
         self.joint_angles.position = [0] * len(self.joint_names)
-        self.last_joint_positions = [-1] * len(self.joint_names) 
+        self.last_joint_positions = [-1] * len(self.joint_names)
+
+        # Calibrate hand force sensors
+        rospy.wait_for_service('/inspire_hand/set_force_clb') # TODO: add dynamic naming once we have 2 hands
+        service_proxy = rospy.ServiceProxy('/inspire_hand/set_force_clb', set_force_clb)
+        service_proxy() # TODO: Improve service definition on the hand side
+        rospy.sleep(5)
+        rospy.loginfo("Hand force sensors calibrated.")
 
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
