@@ -203,6 +203,17 @@ class LeapTeleopNode:
 
             # Sleep to maintain the loop rate
             self.rate.sleep()
+        
+        # Go to home position on shutdown
+        self.go_home()
+
+
+    def go_home(self):
+        """
+        Move the hand to the home position (fist)
+        """
+        self.joint_angles.position = self.fist_angles
+        self.hand_pub.publish(self.joint_angles)
 
     
     def get_angle_between_3_points(self, p1, p2, p3):
