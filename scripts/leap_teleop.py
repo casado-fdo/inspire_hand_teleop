@@ -68,6 +68,13 @@ class LeapTeleopNode:
         # Joint names for the right hand
         self.joint_names = [f"{hand_prefix}{suffix}" for suffix in JOINT_NAMES_SUFFIXES]
 
+        # Calibrate hand force sensors
+        rospy.wait_for_service('/inspire_hand/set_force_clb') # TODO: add dynamic naming once we have 2 hands
+        service_proxy = rospy.ServiceProxy('/inspire_hand/set_force_clb', set_force_clb)
+        service_proxy() # TODO: Improve service definition on the hand side
+        rospy.sleep(5)
+        rospy.loginfo("Hand force sensors calibrated.")
+
         # Subscriber to the Leap Motion data topic
         self.leap_sub = rospy.Subscriber(self.leap_topic, Hand, self.leap_callback, queue_size=1)
 
@@ -84,13 +91,6 @@ class LeapTeleopNode:
         self.last_leap_positions = [-1] * len(self.joint_names)
         self.last_joint_positions = [-1] * len(self.joint_names)  # Initialize last joint positions
         self.last_force_readings = [0] * len(self.joint_names)  # Initialize last hand state
-
-        # Calibrate hand force sensors
-        rospy.wait_for_service('/inspire_hand/set_force_clb') # TODO: add dynamic naming once we have 2 hands
-        service_proxy = rospy.ServiceProxy('/inspire_hand/set_force_clb', set_force_clb)
-        service_proxy() # TODO: Improve service definition on the hand side
-        rospy.sleep(5)
-        rospy.loginfo("Hand force sensors calibrated.")
 
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
