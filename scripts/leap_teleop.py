@@ -2,6 +2,7 @@
 import rospy
 from leap_motion_controller.msg import Hand
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Int32MultiArray
 import math
 from inspire_hand.srv import set_force_clb
 
@@ -28,7 +29,8 @@ class LeapTeleopNode:
         # PARAMETERS
         # Leap Motion and Inspire hand topics 
         self.leap_topic = rospy.get_param('leap_topic', '/leapmotion/hands/right')
-        self.hand_topic = rospy.get_param('hand_topic', '/inspire_hand/set_angles')
+        self.hand_control_topic = rospy.get_param('hand_control_topic', '/inspire_hand/set_angles')
+        self.hand_state_topic = rospy.get_param('hand_state_topic', '/inspire_hand/hand_state')
         
         # Control rate
         self.freq = rospy.get_param('rate', 100)  # Hz
@@ -49,6 +51,9 @@ class LeapTeleopNode:
         self.pinch_index_angles = rospy.get_param('pinch_index_angles', [-1, -1, -1, 482, 560, 110])
         self.pinch_other_angles = rospy.get_param('pinch_other_angles', [400, 400, 475, 482, 660, 0])
 
+        # Force threshold
+        self.force_threshold = rospy.get_param('force_threshold', 200)
+
         # Thresholds for gestures
         self.index_pinch_threshold = rospy.get_param('index_pinch_threshold', 0.03)
         self.middle_pinch_threshold = rospy.get_param('middle_pinch_threshold', 0.05)
@@ -66,14 +71,19 @@ class LeapTeleopNode:
         # Subscriber to the Leap Motion data topic
         self.leap_sub = rospy.Subscriber(self.leap_topic, Hand, self.leap_callback, queue_size=1)
 
+        # Subscriber to the current Hand state
+        self.hand_state_sub = rospy.Subscriber(self.hand_state_topic, Int32MultiArray, self.hand_state_callback, queue_size=1)
+
         # Publisher to the robotic hand joint angles topic
-        self.hand_pub = rospy.Publisher(self.hand_topic, JointState, queue_size=1)
+        self.hand_pub = rospy.Publisher(self.hand_control_topic, JointState, queue_size=1)
 
         # Initialize joint angles
         self.joint_angles = JointState()
         self.joint_angles.name = self.joint_names
         self.joint_angles.position = [0] * len(self.joint_names)
-        self.last_joint_positions = [-1] * len(self.joint_names)
+        self.last_leap_positions = [-1] * len(self.joint_names)
+        self.last_joint_positions = [-1] * len(self.joint_names)  # Initialize last joint positions
+        self.last_force_readings = [0] * len(self.joint_names)  # Initialize last hand state
 
         # Calibrate hand force sensors
         rospy.wait_for_service('/inspire_hand/set_force_clb') # TODO: add dynamic naming once we have 2 hands
@@ -85,6 +95,15 @@ class LeapTeleopNode:
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
         rospy.loginfo("Inspire Hand Teleop node ready!")
+
+    
+    def hand_state_callback(self, msg):
+        """
+        Callback function to process the current hand state and update last force readings.
+        """
+        self.last_joint_positions = msg.data[:6]  # The first 6 values are joint positions
+        self.last_force_readings = msg.data[-6:]  # The last 6 values are force readings
+        #rospy.loginfo(f"Last force readings: {self.last_force_readings}")
 
 
     def leap_callback(self, msg):
@@ -184,8 +203,8 @@ class LeapTeleopNode:
 
 
             # Finally, update the last joint positions
-            self.last_joint_positions =  [int(self.smoothing_factor * fist + (1 - self.smoothing_factor) * last) for fist, last in zip(mapped_angles, self.last_joint_positions)]
-            rospy.loginfo(f"Updated joint positions: {self.last_joint_positions}")
+            self.last_leap_positions =  [int(self.smoothing_factor * fist + (1 - self.smoothing_factor) * last) for fist, last in zip(mapped_angles, self.last_leap_positions)]
+            #rospy.loginfo(f"Updated joint positions: {self.last_leap_positions}")
 
         except IndexError:
             rospy.logerr("Leap Motion data does not contain enough values.")
@@ -193,10 +212,23 @@ class LeapTeleopNode:
 
     def run(self):
         while not rospy.is_shutdown():
-            if any(position != -1 for position in self.last_joint_positions):
+            if any(position != -1 for position in self.last_leap_positions):
+                # First, check if any of the joints is reaching the force threshold 
+                filtered_joint_positions = []
+                for i, position in enumerate(self.last_leap_positions):
+                    # Set to -1 any joint that exceeds the force threshold and the last_leap_position is bigger than last_joint_positions
+                    if self.last_force_readings[i] > self.force_threshold and position < self.last_joint_positions[i]:
+                        filtered_joint_positions.append(self.last_joint_positions[i])  # Use the last joint position
+                    else:
+                        filtered_joint_positions.append(position)
+
+                # Debug if there is any joint that exceeds the force threshold
+                if any(force > self.force_threshold for force in self.last_force_readings):
+                    rospy.logwarn(f"Force threshold exceeded: {self.last_force_readings}")
+
                 # Update the joint angles message
                 self.joint_angles.header.stamp = rospy.Time.now()
-                self.joint_angles.position = self.last_joint_positions
+                self.joint_angles.position = filtered_joint_positions
 
                 # Publish the joint angles
                 self.hand_pub.publish(self.joint_angles)

@@ -1,13 +1,14 @@
 <?xml version="1.0" ?>
 <launch>
   
-  <arg name="leap_topic"    default= "/leapmotion/hands/right" />    
-  <arg name="hand_topic"    default= "/inspire_hand/set_angles" /> 
-  <arg name="hand_side"     default="right" /> <!-- right/left -->
-  <arg name="rate"          default="100" /> <!-- rate in Hz -->
-  <arg name="param_file"    default="$(find inspire_hand_teleop)/config/default.yaml" /> <!-- path to the parameter file -->
-  <arg name="namespace"     default="inspire_hand_teleop" /> <!-- namespace for the hand controller -->
-  <arg name="output"        default="screen" /> <!-- screen/log -->
+  <arg name="leap_topic"            default= "/leapmotion/hands/right" />    
+  <arg name="hand_control_topic"    default= "/inspire_hand/set_angles" /> 
+  <arg name="hand_state_topic"      default= "/inspire_hand/hand_state" />
+  <arg name="hand_side"             default="right" /> <!-- right/left -->
+  <arg name="rate"                  default="100" /> <!-- rate in Hz -->
+  <arg name="param_file"            default="$(find inspire_hand_teleop)/config/default.yaml" /> <!-- path to the parameter file -->
+  <arg name="namespace"             default="inspire_hand_teleop" /> <!-- namespace for the hand controller -->
+  <arg name="output"                default="screen" /> <!-- screen/log -->
   
   <group ns="$(arg namespace)">
     <rosparam command="load" file="$(arg param_file)" />

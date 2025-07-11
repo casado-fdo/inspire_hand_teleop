@@ -17,6 +17,9 @@ pinch_other_angles: [400, 400, 475, 482, 660, 0]  # Pinch angles for Inspire han
 # Control smoothing factor (windowed average)
 smoothing_factor: 0.2  # [0-1] low values for smoother control, high values for more responsive control
 
+# Force threshold (limits joint movement to prevent excessive force)
+force_threshold: 200 # [0-1000] lower values for less force
+
 # Thresholds for gestures
 index_pinch_threshold: 0.03
 middle_pinch_threshold: 0.055
