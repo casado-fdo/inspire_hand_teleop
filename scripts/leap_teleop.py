@@ -72,7 +72,7 @@ class LeapTeleopNode:
         rospy.wait_for_service('/inspire_hand/set_force_clb') # TODO: add dynamic naming once we have 2 hands
         service_proxy = rospy.ServiceProxy('/inspire_hand/set_force_clb', set_force_clb)
         service_proxy() # TODO: Improve service definition on the hand side
-        rospy.sleep(5)
+        rospy.sleep(18)
         rospy.loginfo("Hand force sensors calibrated.")
 
         # Subscriber to the Leap Motion data topic
