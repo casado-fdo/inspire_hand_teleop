@@ -27,8 +27,11 @@ class LeapTeleopNode:
         rospy.init_node('inspire_teleop', anonymous=True)
 
         # PARAMETERS
+        # Hand side (right or left)
+        self.hand_side = rospy.get_param('hand_side', 'right')  # Default to right hand
+
         # Leap Motion and Inspire hand topics 
-        self.leap_topic = rospy.get_param('leap_topic', '/leapmotion/hands/right')
+        self.leap_topic = rospy.get_param('leap_topic', '/leapmotion/hands/' + self.hand_side)
         self.hand_control_topic = rospy.get_param('hand_control_topic', '/inspire_hand/set_angles')
         self.hand_state_topic = rospy.get_param('hand_state_topic', '/inspire_hand/hand_state')
         
@@ -61,11 +64,7 @@ class LeapTeleopNode:
         self.pinky_pinch_threshold = rospy.get_param('pinky_pinch_threshold', 0.045)
         self.fist_threshold = rospy.get_param('fist_threshold', 0.19)
 
-        # Hand side (right or left)
-        self.hand_side = rospy.get_param('hand_side', 'right')  # Default to right hand
-
         hand_prefix = 'L' if self.hand_side == 'left' else 'R'
-        # Joint names for the right hand
         self.joint_names = [f"{hand_prefix}{suffix}" for suffix in JOINT_NAMES_SUFFIXES]
 
         # Calibrate hand force sensors
