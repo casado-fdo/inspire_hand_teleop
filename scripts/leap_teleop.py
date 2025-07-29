@@ -217,7 +217,7 @@ class LeapTeleopNode:
                 for i, position in enumerate(self.last_leap_positions):
                     # Set to -1 any joint that exceeds the force threshold and the last_leap_position is bigger than last_joint_positions
                     if self.last_force_readings[i] > self.force_threshold and position < (self.last_joint_positions[i] + 50):
-                        filtered_joint_positions.append(self.last_joint_positions[i])  # Use the last joint position
+                        filtered_joint_positions.append(-1)
                     else:
                         filtered_joint_positions.append(position)
 
