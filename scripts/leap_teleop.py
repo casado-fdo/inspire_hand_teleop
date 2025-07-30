@@ -31,10 +31,12 @@ class LeapTeleopNode:
         self.hand_side = rospy.get_param('hand_side', 'right')  # Default to right hand
 
         # Leap Motion and Inspire hand topics 
-        self.leap_topic = rospy.get_param('leap_topic', '/leapmotion/hands/' + self.hand_side)
-        self.hand_control_topic = rospy.get_param('hand_control_topic', '/inspire_hand/set_angles')
-        self.hand_state_topic = rospy.get_param('hand_state_topic', '/inspire_hand/hand_state')
-        
+        self.leap_ns = rospy.get_param('leap_ns', '/leapmotion')
+        self.leap_topic = self.leap_ns + '/hands/' + self.hand_side
+        self.hand_ns = rospy.get_param('hand_ns', '/inspire_hand')
+        self.hand_control_topic = self.hand_ns + '/set_angles'
+        self.hand_state_topic = self.hand_ns + '/hand_state'
+
         # Control rate
         self.freq = rospy.get_param('rate', 100)  # Hz
 
