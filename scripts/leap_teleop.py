@@ -4,7 +4,6 @@ from leap_motion_controller.msg import Hand
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Int32MultiArray
 import math
-from inspire_hand.srv import set_force_clb
 
 '''
 This script defines a ROS node that processes Leap Motion data to control the Inspire-Robots hand.
@@ -42,10 +41,13 @@ class LeapTeleopNode:
 
         # Leap smoothing factor
         self.smoothing_factor = rospy.get_param('smoothing_factor', 0.2)
-        
+
+        # Joint state feedback error margin
+        self.joint_error_margin = rospy.get_param('joint_feedback_error_margin', 10)
+
         # Human hand joint angle limits (degrees)
-        self.human_hand_joint_min = rospy.get_param('human_hand_joint_min', [95, 85, 85, 85, 135, 85])
-        self.human_hand_joint_max = rospy.get_param('human_hand_joint_max', [160, 165, 165, 170, 170, 125])
+        self.human_hand_joint_min = rospy.get_param('human_hand_joint_min', [95, 85, 85, 85, 135, 95])
+        self.human_hand_joint_max = rospy.get_param('human_hand_joint_max', [160, 165, 165, 170, 170, 135])
 
         # Inspire hand joint angle limits (scaled 0-1000)
         self.inspire_hand_joint_min = rospy.get_param('inspire_hand_joint_min', [0, 0, 0, 0, 0, 0])
@@ -60,22 +62,12 @@ class LeapTeleopNode:
         self.force_threshold = rospy.get_param('force_threshold', 200)
 
         # Thresholds for gestures
-        self.index_pinch_threshold = rospy.get_param('index_pinch_threshold', 0.03)
-        self.middle_pinch_threshold = rospy.get_param('middle_pinch_threshold', 0.05)
-        self.ring_pinch_threshold = rospy.get_param('ring_pinch_threshold', 0.055)
-        self.pinky_pinch_threshold = rospy.get_param('pinky_pinch_threshold', 0.045)
+        self.index_pinch_threshold = rospy.get_param('index_pinch_threshold', 0.06)
         self.fist_threshold = rospy.get_param('fist_threshold', 0.19)
 
         hand_prefix = 'L' if self.hand_side == 'left' else 'R'
         self.joint_names = [f"{hand_prefix}{suffix}" for suffix in JOINT_NAMES_SUFFIXES]
-
-        # Calibrate hand force sensors
-        rospy.wait_for_service('/inspire_hand/set_force_clb') # TODO: add dynamic naming once we have 2 hands
-        service_proxy = rospy.ServiceProxy('/inspire_hand/set_force_clb', set_force_clb)
-        service_proxy() # TODO: Improve service definition on the hand side
-        rospy.sleep(18)
-        rospy.loginfo("Hand force sensors calibrated.")
-
+        
         # Subscriber to the Leap Motion data topic
         self.leap_sub = rospy.Subscriber(self.leap_topic, Hand, self.leap_callback, queue_size=1)
 
@@ -89,9 +81,11 @@ class LeapTeleopNode:
         self.joint_angles = JointState()
         self.joint_angles.name = self.joint_names
         self.joint_angles.position = [0] * len(self.joint_names)
-        self.last_leap_positions = [-1] * len(self.joint_names)
+        self.last_leap_positions = [1000] * len(self.joint_names) # Initialize last leap positions to a high value (fully open)
         self.last_joint_positions = [-1] * len(self.joint_names)  # Initialize last joint positions
-        self.last_force_readings = [0] * len(self.joint_names)  # Initialize last hand state
+        self.last_force_readings = [0] * len(self.joint_names)    # Initialize last hand state
+        self.last_command = [-1] * len(self.joint_names)          # Initialize last command positions
+        self.grasping = [False] * len(self.joint_names)           # Initialize grasping state for each joint
 
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
@@ -138,7 +132,7 @@ class LeapTeleopNode:
             mapped_angles = angles
             #rospy.loginfo(f"Raw angles from Leap Motion: {angles}")
             for i, angle in enumerate(angles):
-                # Map the angle to the Inspire hand joint range
+                # Map the angle to the Inspire hand joint range   
                 mapped_angle = int((angle - self.human_hand_joint_min[i]) / (self.human_hand_joint_max[i] - self.human_hand_joint_min[i]) * (self.inspire_hand_joint_max[i] - self.inspire_hand_joint_min[i]) + self.inspire_hand_joint_min[i])
                 mapped_angle = max(self.inspire_hand_joint_min[i], min(self.inspire_hand_joint_max[i], mapped_angle))
                 mapped_angles[i] = mapped_angle
@@ -152,47 +146,27 @@ class LeapTeleopNode:
             palm_center = msg.palm_center.position
 
             thumb_to_index_distance = self.euclidean_distance(thumb_tip, index_tip)
-            thumb_to_middle_distance = self.euclidean_distance(thumb_tip, middle_tip)
-            thumb_to_ring_distance = self.euclidean_distance(thumb_tip, ring_tip)
-            thumb_to_pinky_distance = self.euclidean_distance(thumb_tip, pinky_tip)
             thumb_to_palm_distance = self.euclidean_distance(thumb_tip, palm_center)
             index_to_palm_distance = self.euclidean_distance(index_tip, palm_center)
             middle_to_palm_distance = self.euclidean_distance(middle_tip, palm_center)
             ring_to_palm_distance = self.euclidean_distance(ring_tip, palm_center)
             pinky_to_palm_distance = self.euclidean_distance(pinky_tip, palm_center)
             total_distance_to_palm = (thumb_to_palm_distance + index_to_palm_distance + middle_to_palm_distance + ring_to_palm_distance + pinky_to_palm_distance)
-            #rospy.loginfo("Total distance to palm: {:.2f} m".format(total_distance_to_palm))
 
             # Check for FIST
             if total_distance_to_palm < self.fist_threshold:
                 rospy.loginfo_throttle(1, "FIST gesture detected.")
                 mapped_angles = self.fist_angles  # Set angles for a fist gesture
             # Check for PINCH with the index finger
-            elif thumb_to_index_distance < self.index_pinch_threshold and thumb_to_middle_distance > thumb_to_index_distance:
-                # Thumb is touching the index finger
-                rospy.loginfo_throttle(1, "Thumb is touching the INDEX finger.")
-                mapped_angles[3:6] = self.pinch_index_angles[3:6]  # Set angles for pinch with index finger
-            # Check for PINCH with the middle finger
-            elif thumb_to_middle_distance < self.middle_pinch_threshold and thumb_to_index_distance > thumb_to_middle_distance and middle_to_palm_distance > thumb_to_middle_distance:
-                # Thumb is touching the middle finger
-                rospy.loginfo_throttle(1, "Thumb is touching the MIDDLE finger.")
-                mapped_angles[2] = self.pinch_other_angles[2]
-                mapped_angles[3] = max(mapped_angles[3], self.pinch_other_angles[3])
-                mapped_angles[4:6] = self.pinch_other_angles[4:6]
-            # Check for PINCH with the ring finger
-            elif thumb_to_ring_distance < self.ring_pinch_threshold and thumb_to_middle_distance > thumb_to_ring_distance:
-                # Thumb is touching the ring finger
-                rospy.loginfo_throttle(1, "Thumb is touching the RING finger.")
-                mapped_angles[1] = self.pinch_other_angles[1]
-                mapped_angles[2:4] = [max(a, b) for a, b in zip(self.pinch_other_angles[2:4], mapped_angles[2:4])]
-                mapped_angles[4:6] = self.pinch_other_angles[4:6]
-            # Check for PINCH with the pinky finger
-            elif thumb_to_pinky_distance < self.pinky_pinch_threshold and thumb_to_ring_distance > thumb_to_pinky_distance:
-                # Thumb is touching the pinky finger
-                rospy.loginfo_throttle(1, "Thumb is touching the PINKY finger.")
-                mapped_angles[0] = self.pinch_other_angles[0]
-                mapped_angles[1:4] = [max(a, b) for a, b in zip(self.pinch_other_angles[1:4], mapped_angles[1:4])]
-                mapped_angles[4:6] = self.pinch_other_angles[4:6]
+            elif thumb_to_index_distance < self.index_pinch_threshold:
+                rospy.loginfo_throttle(1, "Thumb is close to the INDEX finger: " + str(thumb_to_index_distance))
+                # Compute blend factor: 0 (no pinch) to 1 (full pinch)
+                blend = max(0.0, min(1.0, 1.0 - ((thumb_to_index_distance - 0.005) / self.index_pinch_threshold)))
+                rospy.loginfo("Thumb to index distance: " + str(thumb_to_index_distance) + ", index pinch threshold: " + str(self.index_pinch_threshold) + ", blend factor: " + str(blend))
+                for i in range(3, 6):
+                    pinch_val = self.pinch_index_angles[i]
+                    if pinch_val != -1:
+                        mapped_angles[i] = int((1- blend) * mapped_angles[i] + blend * pinch_val)
             # Finally, for SAFETY, make sure that if the index is closed, the thumb is opened, and vice versa, to avoid collisions
             elif mapped_angles[3] < self.pinch_index_angles[3]:
                 rospy.loginfo_throttle(1,"INDEX finger is closed, opening Thumb's 2nd DoF.")
@@ -204,8 +178,7 @@ class LeapTeleopNode:
 
 
             # Finally, update the last joint positions
-            self.last_leap_positions =  [int(self.smoothing_factor * fist + (1 - self.smoothing_factor) * last) for fist, last in zip(mapped_angles, self.last_leap_positions)]
-            #rospy.loginfo(f"Updated joint positions: {self.last_leap_positions}")
+            self.last_leap_positions = [float(self.smoothing_factor * current_angle + (1 - self.smoothing_factor) * last_angle) for current_angle, last_angle in zip(mapped_angles, self.last_leap_positions)]
 
         except IndexError:
             rospy.logerr("Leap Motion data does not contain enough values.")
@@ -214,25 +187,38 @@ class LeapTeleopNode:
     def run(self):
         while not rospy.is_shutdown():
             if any(position != -1 for position in self.last_leap_positions):
-                # First, check if any of the joints is reaching the force threshold 
+                # Reset the grasping state only when the new position is fully open for all joints
+                if all(position >= (1000 - 4.0 * self.joint_error_margin) for position in self.last_leap_positions) and any(self.grasping):
+                    self.grasping = [False] * len(self.joint_names)
+                    rospy.loginfo("Grasping finished.")
                 filtered_joint_positions = []
                 for i, position in enumerate(self.last_leap_positions):
                     # Set to -1 any joint that exceeds the force threshold and the last_leap_position is bigger than last_joint_positions
-                    if self.last_force_readings[i] > self.force_threshold and position < (self.last_joint_positions[i] + 50):
+                    if position == -1 or self.grasping[i]:
                         filtered_joint_positions.append(-1)
+                    elif self.last_force_readings[i] > self.force_threshold and position < (self.last_joint_positions[i] + self.joint_error_margin):
+                        filtered_joint_positions.append(-1)
+                        self.grasping[i] = True
                     else:
-                        filtered_joint_positions.append(position)
+                        filtered_joint_positions.append(int(position))
 
                 # Debug if there is any joint that exceeds the force threshold
                 if any(force > self.force_threshold for force in self.last_force_readings):
                     rospy.logwarn(f"Force threshold exceeded: {self.last_force_readings}")
+                # Debug if there is any joint that is grasping
+                if any(self.grasping):
+                    rospy.logwarn(f"Grasping detected: {self.grasping}")
 
                 # Update the joint angles message
                 self.joint_angles.header.stamp = rospy.Time.now()
                 self.joint_angles.position = filtered_joint_positions
+                # rospy.loginfo(f"Publishing joint angles: {self.joint_angles.position}")
 
                 # Publish the joint angles
                 self.hand_pub.publish(self.joint_angles)
+                for i in range(len(self.joint_names)):
+                    if filtered_joint_positions[i] != -1:
+                        self.last_command[i] = filtered_joint_positions[i]
 
             # Sleep to maintain the loop rate
             self.rate.sleep()
