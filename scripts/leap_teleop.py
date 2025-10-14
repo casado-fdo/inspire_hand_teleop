@@ -56,7 +56,6 @@ class LeapTeleopNode:
         # Predefined angles for gestures
         self.fist_angles = rospy.get_param('fist_angles', [0, 0, 0, 0, 0, 1000])
         self.pinch_index_angles = rospy.get_param('pinch_index_angles', [-1, -1, -1, 482, 560, 110])
-        self.pinch_other_angles = rospy.get_param('pinch_other_angles', [400, 400, 475, 482, 660, 0])
 
         # Force threshold
         self.force_threshold = rospy.get_param('force_threshold', 200)
@@ -107,9 +106,10 @@ class LeapTeleopNode:
         """
         angles = [0] * len(self.joint_names)  # Initialize angles for each joint
         try:
+            fingerlist = msg.finger_list_filtered
             # 1. DIRECT MAPPING from Leap Motion data
             # Reversed loop to process from pinky to thumb, matching the Inspire hand joint order
-            for i, finger in list(enumerate(msg.finger_list)): 
+            for i, finger in list(enumerate(fingerlist)): 
                 start_bone_idx = 1 if i == 0 else 1
                 # Get the start and end positions of the first and last bones
                 first_bone_start = finger.bone_list[start_bone_idx].bone_start
@@ -122,7 +122,7 @@ class LeapTeleopNode:
             
                 if i == 0:  # Thumb is at index 0
                     # For the 2nd DoF of the thumb, we calculate the angle between the thumb's tip and the pinky's first bone
-                    pinky_first_bone_start = msg.finger_list[-1].bone_list[0].bone_start
+                    pinky_first_bone_start = fingerlist[-1].bone_list[0].bone_start
                     # Calculate the angle
                     angle2 = self.get_angle_between_3_points(last_bone_end, first_bone_start, pinky_first_bone_start)
                     angles[0] = angle2 
@@ -138,11 +138,11 @@ class LeapTeleopNode:
                 mapped_angles[i] = mapped_angle
 
             # 2. FINE TUNING of the angles based on finger distances
-            thumb_tip = msg.finger_list[0].bone_list[-1].bone_end
-            index_tip = msg.finger_list[1].bone_list[-1].bone_end
-            middle_tip = msg.finger_list[2].bone_list[-1].bone_end
-            ring_tip = msg.finger_list[3].bone_list[-1].bone_end
-            pinky_tip = msg.finger_list[4].bone_list[-1].bone_end
+            thumb_tip = fingerlist[0].bone_list[-1].bone_end
+            index_tip = fingerlist[1].bone_list[-1].bone_end
+            middle_tip = fingerlist[2].bone_list[-1].bone_end
+            ring_tip = fingerlist[3].bone_list[-1].bone_end
+            pinky_tip = fingerlist[4].bone_list[-1].bone_end
             palm_center = msg.palm_center.position
 
             thumb_to_index_distance = self.euclidean_distance(thumb_tip, index_tip)
@@ -188,7 +188,7 @@ class LeapTeleopNode:
         while not rospy.is_shutdown():
             if any(position != -1 for position in self.last_leap_positions):
                 # Reset the grasping state only when the new position is fully open for all joints
-                if all(position >= (1000 - 4.0 * self.joint_error_margin) for position in self.last_leap_positions) and any(self.grasping):
+                if all(position >= (1000 - 15 * self.joint_error_margin) for position in self.last_leap_positions) and any(self.grasping):
                     self.grasping = [False] * len(self.joint_names)
                     rospy.loginfo("Grasping finished.")
                 filtered_joint_positions = []
@@ -196,11 +196,14 @@ class LeapTeleopNode:
                     # Set to -1 any joint that exceeds the force threshold and the last_leap_position is bigger than last_joint_positions
                     if position == -1 or self.grasping[i]:
                         filtered_joint_positions.append(-1)
-                    elif self.last_force_readings[i] > self.force_threshold and position < (self.last_joint_positions[i] + self.joint_error_margin):
-                        filtered_joint_positions.append(-1)
+                    elif self.last_force_readings[i] > self.force_threshold and position < self.last_joint_positions[i] and self.grasping[i] == False:
+                        filtered_joint_positions.append(self.last_joint_positions[i] - 2 * self.joint_error_margin)
                         self.grasping[i] = True
                     else:
                         filtered_joint_positions.append(int(position))
+
+                if any(self.grasping):
+                    filtered_joint_positions[5] = -1 # Always ignore the thumb's 2nd DoF when grasping
 
                 # Debug if there is any joint that exceeds the force threshold
                 if any(force > self.force_threshold for force in self.last_force_readings):
@@ -208,6 +211,12 @@ class LeapTeleopNode:
                 # Debug if there is any joint that is grasping
                 if any(self.grasping):
                     rospy.logwarn(f"Grasping detected: {self.grasping}")
+
+                # Set to -1 any joint that has not changed significantly from the last command
+                for i in range(len(filtered_joint_positions)):
+                    if filtered_joint_positions[i] != -1 and self.last_command[i] != -1:
+                        if abs(filtered_joint_positions[i] - self.last_command[i]) < self.joint_error_margin:
+                            filtered_joint_positions[i] = -1
 
                 # Update the joint angles message
                 self.joint_angles.header.stamp = rospy.Time.now()
