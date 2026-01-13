@@ -133,21 +133,21 @@ class LeapToInspireHand:
 
             # Check for FIST
             if total_distance_to_palm < self.fist_threshold:
-                rospy.loginfo_throttle(1, "FIST gesture detected.")
+                # rospy.loginfo_throttle(1, "FIST gesture detected.")
                 mapped_angles = self.fist_angles  # Set angles for a fist gesture
             # Check for PINCH with the index finger
             elif thumb_to_index_distance < self.index_pinch_threshold:
-                rospy.loginfo_throttle(1, "Thumb is close to the INDEX finger: " + str(thumb_to_index_distance))
+                # rospy.loginfo_throttle(1, "Thumb is close to the INDEX finger: " + str(thumb_to_index_distance))
                 # Compute blend factor: 0 (no pinch) to 1 (full pinch)
                 blend = max(0.0, min(1.0, 1.0 - ((thumb_to_index_distance - 0.005) / self.index_pinch_threshold)))
-                rospy.loginfo("Thumb to index distance: " + str(thumb_to_index_distance) + ", index pinch threshold: " + str(self.index_pinch_threshold) + ", blend factor: " + str(blend))
+                # rospy.loginfo("Thumb to index distance: " + str(thumb_to_index_distance) + ", index pinch threshold: " + str(self.index_pinch_threshold) + ", blend factor: " + str(blend))
                 for i in range(3, 6):
                     pinch_val = self.pinch_index_angles[i]
                     if pinch_val != -1:
                         mapped_angles[i] = int((1- blend) * mapped_angles[i] + blend * pinch_val)
             # Finally, for SAFETY, make sure that if the index is closed, the thumb is opened, and vice versa, to avoid collisions
             elif mapped_angles[3] < self.pinch_index_angles[3]:
-                rospy.loginfo_throttle(1,"INDEX finger is closed, opening Thumb's 2nd DoF.")
+                # rospy.loginfo_throttle(1,"INDEX finger is closed, opening Thumb's 2nd DoF.")
                 if mapped_angles[5] < 600:
                     mapped_angles[4] = max(mapped_angles[4], 350)
                     mapped_angles[5] = 600
