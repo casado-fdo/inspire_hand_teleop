@@ -34,6 +34,7 @@ class InspireHandTeleop:
         self.hand_ns = rospy.get_param('hand_ns', '/inspire_hand')
         self.hand_state_topic = self.hand_ns + '/hand_state'
         self.hand_control_topic = self.hand_ns + '/set_angles'
+        self.inactivity_timeout = rospy.get_param("inactivity_timeout") # s (-1 for infinite)
         rospy.loginfo(f"Using teleoperation source: {self.teleop_source}")
 
         # Control rate
@@ -43,7 +44,7 @@ class InspireHandTeleop:
         self.joint_error_margin = rospy.get_param('joint_feedback_error_margin', 10)
 
         # Predefined angles for gestures
-        self.fist_angles = rospy.get_param('fist_angles', [0, 0, 0, 0, 0, 1000])
+        self.home_angles = rospy.get_param('home_angles', [1000, 1000, 1000, 1000, 1000, 1000])
 
         # Force threshold
         self.force_threshold = rospy.get_param('force_threshold', 200)
@@ -68,6 +69,7 @@ class InspireHandTeleop:
         self.last_joint_positions = [-1] * len(self.joint_names)  # Initialize last joint positions
         self.last_force_readings = [0] * len(self.joint_names)    # Initialize last hand state
         self.last_command = [-1] * len(self.joint_names)          # Initialize last command positions
+        self.last_command_time = None
         self.grasping = [False] * len(self.joint_names)           # Initialize grasping state for each joint
 
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
@@ -94,7 +96,11 @@ class InspireHandTeleop:
 
     def run(self):
         while not rospy.is_shutdown():
-            if any(position != -1 for position in self.last_teleop_positions):
+            if self.last_command_time != None and self.inactivity_timeout > 0 and (rospy.Time.now() - self.last_command_time).to_sec() > self.inactivity_timeout:
+                rospy.loginfo("Inactivity timeout reached. Going to home position.")
+                self.go_home()
+                self.last_command_time = None
+            elif self.last_teleop_positions is not None and any(position != -1 for position in self.last_teleop_positions):
                 # Reset the grasping state only when the new position is fully open for all joints
                 if all(position >= (1000 - 15 * self.joint_error_margin) for position in self.last_teleop_positions) and any(self.grasping):
                     self.grasping = [False] * len(self.joint_names)
@@ -127,7 +133,8 @@ class InspireHandTeleop:
                             filtered_joint_positions[i] = -1
 
                 # Update the joint angles message
-                self.joint_angles.header.stamp = rospy.Time.now()
+                time_now = rospy.Time.now()
+                self.joint_angles.header.stamp = time_now
                 self.joint_angles.position = filtered_joint_positions
                 # rospy.loginfo(f"Publishing joint angles: {self.joint_angles.position}")
 
@@ -136,6 +143,10 @@ class InspireHandTeleop:
                 for i in range(len(self.joint_names)):
                     if filtered_joint_positions[i] != -1:
                         self.last_command[i] = filtered_joint_positions[i]
+
+                self.last_teleop_positions = None
+                self.last_command_time = time_now
+
 
             # Sleep to maintain the loop rate
             self.rate.sleep()
@@ -146,9 +157,9 @@ class InspireHandTeleop:
 
     def go_home(self):
         """
-        Move the hand to the home position (fist)
+        Move the hand to the home position (fully open)
         """
-        self.joint_angles.position = self.fist_angles
+        self.joint_angles.position = self.home_angles
         self.hand_pub.publish(self.joint_angles)
 
 

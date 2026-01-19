@@ -71,6 +71,7 @@ class LeapToInspireHand:
         self.hand_pub = rospy.Publisher(self.hand_ns + '/leap_teleop/hand_angles', Int32MultiArray, queue_size=1)
 
         self.last_leap_positions = [1000] * len(self.joint_names) # Initialize last leap positions to a high value (fully open)
+        self.last_positions_cmd = None
 
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
@@ -157,6 +158,7 @@ class LeapToInspireHand:
 
             # Finally, update the last joint positions
             self.last_leap_positions = [float(self.smoothing_factor * current_angle + (1 - self.smoothing_factor) * last_angle) for current_angle, last_angle in zip(mapped_angles, self.last_leap_positions)]
+            self.last_positions_cmd = [int(pos) for pos in self.last_leap_positions]
 
         except IndexError:
             rospy.logerr("Leap Motion data does not contain enough values.")
@@ -164,11 +166,13 @@ class LeapToInspireHand:
 
     def run(self):
         while not rospy.is_shutdown():
-            if any(position != -1 for position in self.last_leap_positions):
+            if self.last_positions_cmd is not None and any(position != -1 for position in self.last_positions_cmd):
                 # Publish the smoothed joint angles
                 leap_hand_msg = Int32MultiArray()
-                leap_hand_msg.data = [int(pos) for pos in self.last_leap_positions]
+                leap_hand_msg.data = self.last_positions_cmd
                 self.hand_pub.publish(leap_hand_msg)
+
+                self.last_positions_cmd = None
 
             # Sleep to maintain the loop rate
             self.rate.sleep()
