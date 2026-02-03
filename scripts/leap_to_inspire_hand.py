@@ -37,7 +37,7 @@ class LeapToInspireHand:
         self.hand_state_topic = self.hand_ns + '/hand_state'
 
         # Control rate
-        self.freq = rospy.get_param('rate', 100)  # Hz
+        self.freq = 30 # Hz
 
         # Leap smoothing factor
         self.smoothing_factor = rospy.get_param('smoothing_factor', 0.2)
