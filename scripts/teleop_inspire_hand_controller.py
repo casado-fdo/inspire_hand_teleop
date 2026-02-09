@@ -120,11 +120,11 @@ class InspireHandTeleop:
                     filtered_joint_positions[5] = -1 # Always ignore the thumb's 2nd DoF when grasping
 
                 # Debug if there is any joint that exceeds the force threshold
-                if any(force > self.force_threshold for force in self.last_force_readings):
-                    rospy.logwarn(f"Force threshold exceeded: {self.last_force_readings}")
+                #if any(force > self.force_threshold for force in self.last_force_readings):
+                #    rospy.logwarn(f"Force threshold exceeded: {self.last_force_readings}")
                 # Debug if there is any joint that is grasping
-                if any(self.grasping):
-                    rospy.logwarn(f"Grasping detected: {self.grasping}")
+                #if any(self.grasping):
+                #    rospy.logwarn(f"Grasping detected: {self.grasping}")
 
                 # Set to -1 any joint that has not changed significantly from the last command
                 for i in range(len(filtered_joint_positions)):
