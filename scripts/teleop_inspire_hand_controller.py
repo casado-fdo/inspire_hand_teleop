@@ -44,7 +44,8 @@ class InspireHandTeleop:
         self.joint_error_margin = rospy.get_param('joint_feedback_error_margin', 10)
 
         # Predefined angles for gestures
-        self.home_angles = rospy.get_param('home_angles', [1000, 1000, 1000, 1000, 1000, 1000])
+        self.home_angles = rospy.get_param('fist_angles', [1000, 1000, 1000, 1000, 1000, 1000])
+        self.ready_angles = rospy.get_param('open_angles', [1000, 1000, 1000, 1000, 1000, 1000])
 
         # Force threshold
         self.force_threshold = rospy.get_param('force_threshold', 200)
@@ -75,7 +76,17 @@ class InspireHandTeleop:
         self.rate = rospy.Rate(self.freq)  # Set the loop rate
 
         rospy.loginfo("Inspire Hand Teleop node ready!")
+        
+        # Register shutdown function
+        rospy.on_shutdown(self.shutdown)
 
+    
+    def shutdown(self):
+        """
+        Shutdown function to ensure the hand goes to home position
+        """
+        rospy.loginfo("Shutting down - moving hand to home position")
+        self.go_home()
     
     def hand_state_callback(self, msg):
         """
@@ -95,10 +106,19 @@ class InspireHandTeleop:
 
 
     def run(self):
+        # Wait for a bit
+        rospy.sleep(4.5)
+        # Initialise the hand from home position
+        self.go_home()
+        # Wait for a bit
+        rospy.sleep(4.5)
+        # Now go to ready position
+        self.go_ready()
+        # Ready to run the teleoperation
         while not rospy.is_shutdown():
             if self.last_command_time != None and self.inactivity_timeout > 0 and (rospy.Time.now() - self.last_command_time).to_sec() > self.inactivity_timeout:
                 rospy.loginfo("Inactivity timeout reached. Going to home position.")
-                self.go_home()
+                self.go_ready()
                 self.last_command_time = None
             elif self.last_teleop_positions is not None and any(position != -1 for position in self.last_teleop_positions):
                 # Reset the grasping state only when the new position is fully open for all joints
@@ -119,13 +139,6 @@ class InspireHandTeleop:
                 if any(self.grasping):
                     filtered_joint_positions[5] = -1 # Always ignore the thumb's 2nd DoF when grasping
 
-                # Debug if there is any joint that exceeds the force threshold
-                #if any(force > self.force_threshold for force in self.last_force_readings):
-                #    rospy.logwarn(f"Force threshold exceeded: {self.last_force_readings}")
-                # Debug if there is any joint that is grasping
-                #if any(self.grasping):
-                #    rospy.logwarn(f"Grasping detected: {self.grasping}")
-
                 # Set to -1 any joint that has not changed significantly from the last command
                 for i in range(len(filtered_joint_positions)):
                     if filtered_joint_positions[i] != -1 and self.last_command[i] != -1:
@@ -136,7 +149,6 @@ class InspireHandTeleop:
                 time_now = rospy.Time.now()
                 self.joint_angles.header.stamp = time_now
                 self.joint_angles.position = filtered_joint_positions
-                # rospy.loginfo(f"Publishing joint angles: {self.joint_angles.position}")
 
                 # Publish the joint angles
                 self.hand_pub.publish(self.joint_angles)
@@ -150,18 +162,21 @@ class InspireHandTeleop:
 
             # Sleep to maintain the loop rate
             self.rate.sleep()
-        
-        # Go to home position on shutdown
-        self.go_home()
 
 
     def go_home(self):
         """
-        Move the hand to the home position (fully open)
+        Move the hand to the home position (fully closed)
         """
         self.joint_angles.position = self.home_angles
         self.hand_pub.publish(self.joint_angles)
 
+    def go_ready(self):
+        """
+        Move the hand to the ready position (fully open)
+        """
+        self.joint_angles.position = self.ready_angles
+        self.hand_pub.publish(self.joint_angles)
 
 if __name__ == '__main__':
     try:

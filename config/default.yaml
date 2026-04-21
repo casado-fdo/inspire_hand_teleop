@@ -11,7 +11,7 @@ inspire_hand_joint_max: [1000, 1000, 1000, 1000, 1000, 1000]  # Maximum angles
 
 # Predefined angles for gestures
 fist_angles: [0, 0, 0, 0, 0, 1000]  # Fist angles for Inspire hand
-home_angles: [1000, 1000, 1000, 1000, 1000, 1000]  # Home angles for Inspire hand (fully open)
+open_angles: [1000, 1000, 1000, 1000, 1000, 1000]  # Open angles for Inspire hand
 pinch_index_angles: [-1, -1, -1, 480, 550, 110]  # Pinch angles for Inspire hand (thumb touching index)
 
 # Control smoothing factor (windowed average)
