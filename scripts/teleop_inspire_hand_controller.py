@@ -3,6 +3,7 @@ import rospy
 from leap_motion_controller.msg import Hand
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Int32MultiArray
+from inspire_hand.srv import set_clear_error
 import math
 
 '''
@@ -35,6 +36,8 @@ class InspireHandTeleop:
         self.hand_state_topic = self.hand_ns + '/hand_state'
         self.hand_control_topic = self.hand_ns + '/set_angles'
         self.inactivity_timeout = rospy.get_param("inactivity_timeout") # s (-1 for infinite)
+        self.clear_error_service = rospy.ServiceProxy(self.hand_ns + '/set_clear_error', set_clear_error)
+
         rospy.loginfo(f"Using teleoperation source: {self.teleop_source}")
 
         # Control rate
@@ -168,6 +171,7 @@ class InspireHandTeleop:
         """
         Move the hand to the home position (fully closed)
         """
+        self.clear_errors()
         self.joint_angles.position = self.home_angles
         self.hand_pub.publish(self.joint_angles)
 
@@ -175,8 +179,18 @@ class InspireHandTeleop:
         """
         Move the hand to the ready position (fully open)
         """
+        self.clear_errors()
         self.joint_angles.position = self.ready_angles
         self.hand_pub.publish(self.joint_angles)
+
+    def clear_errors(self):
+        """
+        Calls the clear error service
+        """
+        try:
+            self.clear_error_service()
+        except rospy.ServiceException as e:
+            rospy.logerr("Service call failed: %s" % e)
 
 if __name__ == '__main__':
     try:
