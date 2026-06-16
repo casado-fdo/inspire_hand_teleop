@@ -174,6 +174,7 @@ class InspireHandTeleop:
         self.clear_errors()
         self.joint_angles.position = self.home_angles
         self.hand_pub.publish(self.joint_angles)
+        self.grasping = [False] * len(self.joint_names)
 
     def go_ready(self):
         """
@@ -182,6 +183,7 @@ class InspireHandTeleop:
         self.clear_errors()
         self.joint_angles.position = self.ready_angles
         self.hand_pub.publish(self.joint_angles)
+        self.grasping = [False] * len(self.joint_names)
 
     def clear_errors(self):
         """
