@@ -8,7 +8,7 @@ ROS package for teleoperating the Inspire-Robots RH56DFX dexterous hand with a L
 ## Prerequisites
 - ROS Noetic
 - [leap-motion-ros](https://github.com/casado-fdo/leap-motion-ros), publishing `/leapmotion/hands/{left,right}`
-- [inspire_hand_ros](https://github.com/mperialCollegeLondon/inspire_hand_ros), providing the hand driver
+- [inspire_hand_ros](https://github.com/ImperialCollegeLondon/inspire_hand_ros), providing the hand driver
 
 ## Installation
 Clone the repository into a catkin workspace and build:
